@@ -1,5 +1,5 @@
 [package]
-name = "self-made-tcp-in-rust"
+name = "toytcp"
 version = "0.1.0"
 authors = ["tmoka0476 <knowledzr+alt@gmail.com>"]
 edition = "2018"

@@ -1,6 +1,6 @@
 use anyhow::Result;
 use std::{env, io, net::Ipv4Addr, str};
-use self_made_tcp_in_rust::tcp::TCP;
+use toytcp::tcp::TCP;
 
 fn main() -> Result<()> {
     let args: Vec<String> = env::args().collect();

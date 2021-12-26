@@ -43,6 +43,6 @@ impl TCP {
     }
 }
 
-fn get_source_addr_to(addr: Ipv4Addr) -> result<Ipv4Addr> {
+fn get_source_addr_to(addr: Ipv4Addr) -> Result<Ipv4Addr> {
     Ok("10.0.0.1".parse().unwrap())
 }

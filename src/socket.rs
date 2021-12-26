@@ -1,4 +1,4 @@
-use crate::packet::TcpPacket;
+use crate::packet::TCPPacket;
 use crate::tcpflags;
 use anyhow::{Context, Result};
 use pnet::packet::{ip::IpNextHeaderProtocols, Packet};
@@ -30,7 +30,7 @@ impl Socket {
         remote_addr: Ipv4Addr,
         local_port: u16,
         remote_port: u16,
-    ) -> result<Self> {
+    ) -> Result<Self> {
         let (sender, _) = transport::transport_channel(
             65535,
             TransportChannelType::Layer4(TransportProtocol::Ipv4(IpNextHeaderProtocols::Tcp)),
