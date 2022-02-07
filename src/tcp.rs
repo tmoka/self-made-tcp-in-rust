@@ -19,12 +19,56 @@ const RETRANSMISSION_TIMEOUT: u64 = 3;
 const MSS: usize = 1460;
 const PORT_RANGE: Range<u16> = 40000..60000;
 
+#[derive(Debug, Clone, PartialEq)]
+struct TCPEvent {
+    sock_id: SockID, // イベント発生元のソケットID
+    kind: TCPEventKind,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum TCPEventKind {
+    ConnectionCompleted,
+    Acked,
+    DataArrived,
+    ConnectionClosed,
+}
 pub struct TCP {
     sockets: RwLock<HashMap<SockID, Socket>>,
     event_condvar: (Mutex<Option<TCPEvent>>, Condvar),
 }
 
+impl TCPEvent {
+    fn new(sock_id: SockID, kind: TCPEventKind) -> Self {
+        Self { sock_id, kind }
+    }
+}
+
 impl TCP {
+    /// 指定したソケットIDと種別のイベントを待機
+    fn wait_event(&self, sock_id: SockID, kind: TCPEventKind) {
+        let (lock, cvar) = &self.event_condvar;
+        let mut event = lock.lock().unwrap();
+        loop {
+            if let Some(ref e) = *event {
+                if e.sock_id == sock_id && e.kind == kind {
+                    break;
+                }
+            }
+            // cvarがnotifyされるまでeventのロックを外して待機
+            event = cvar.wait(event).unwrap();
+        }
+        dbg!(&event);
+        *event = None;
+    }
+
+    /// 指定のソケットIDにイベントを発行する
+    fn publish_event(&self, sock_id: SockID, kind: TCPEventKind) {
+        let (lock, cvar) = &self.event_condvar;
+        let mut e = lock.lock().unwrap();
+        *e = Some(TCPEvent::new(sock_id, kind));
+        cvar.notify_all();
+    }
+
     /// SYNSENT状態のソケットに到着したパケットの処理を行う
     fn synsent_handler(&self, socket: &mut Socket, packet: &TCPPacket) -> Result<()> {
         dbg!("synsent handler");
@@ -48,7 +92,7 @@ impl TCP {
                 dbg!("status: synsent ->", &socket.status);
                 self.publish_event(socket.get_sock_id(), TCPEventKind::ConnectionCompleted);
             } else {
-                socket.status = Tcp.Status::SynRcvd;
+                socket.status = TcpStatus::SynRcvd;
                 socket.send_tcp_packet(
                     socket.send_param.next,
                     socket.recv_param.next,
@@ -71,7 +115,7 @@ impl TCP {
         .unwrap();
         let mut packet_iter = transport::ipv4_packet_iter(&mut receiver);
         loop {
-            let (packet, remote_addr) = match packet_iter(&mut receiver) {
+            let (packet, remote_addr) = match packet_iter.next() {
                 Ok((p, r)) => (p, r),
                 Err(_) => continue,
             };
