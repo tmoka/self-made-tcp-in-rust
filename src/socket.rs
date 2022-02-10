@@ -87,7 +87,12 @@ impl Socket {
             remote_addr,
             local_port,
             remote_port,
-            send_param: SendParam { unacked_seq: 0, next:0, window:SOCKET_BUFFER_SIZE as u16, initial_seq:0 },
+            send_param: SendParam {
+                unacked_seq: 0,
+                next: 0,
+                window: SOCKET_BUFFER_SIZE as u16,
+                initial_seq: 0,
+            },
             recv_param: RecvParam {
                 initial_seq: 0,
                 next: 0,
@@ -99,7 +104,13 @@ impl Socket {
         })
     }
 
-    pub fn send_tcp_packet(&mut self, seq: u32, ack: u32, flag: u8, payload: &[u8]) -> Result<usize> {
+    pub fn send_tcp_packet(
+        &mut self,
+        seq: u32,
+        ack: u32,
+        flag: u8,
+        payload: &[u8],
+    ) -> Result<usize> {
         let mut tcp_packet = TCPPacket::new(payload.len());
         tcp_packet.set_src(self.local_port);
         tcp_packet.set_dest(self.remote_port);
@@ -108,7 +119,14 @@ impl Socket {
         tcp_packet.set_flag(flag);
         tcp_packet.set_window_size(self.recv_param.window);
         tcp_packet.set_payload(payload);
-        tcp_packet.set_checksum(util::ipv4_checksum(&tcp_packet.packet(), 8, &[], &self.local_addr, &self.remote_addr, IpNextHeaderProtocols::Tcp));
+        tcp_packet.set_checksum(util::ipv4_checksum(
+            &tcp_packet.packet(),
+            8,
+            &[],
+            &self.local_addr,
+            &self.remote_addr,
+            IpNextHeaderProtocols::Tcp,
+        ));
         let sent_size = self
             .sender
             .send_to(tcp_packet.clone(), IpAddr::V4(self.remote_addr))

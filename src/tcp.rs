@@ -150,7 +150,7 @@ impl TCP {
                     UNDETERMINED_PORT,
                 )) {
                     Some(socket) => socket, // リスニングソケット
-                    None => continue, // どのソケットにも該当しないものは無視
+                    None => continue,       // どのソケットにも該当しないものは無視
                 },
             };
             if !packet.is_correct_checksum(local_addr, remote_addr) {
@@ -167,7 +167,6 @@ impl TCP {
             } {
                 dbg!(error);
             }
-
         }
     }
 
@@ -197,7 +196,13 @@ impl TCP {
 
     pub fn connect(&self, addr: Ipv4Addr, port: u16) -> Result<SockID> {
         let mut rng = rand::thread_rng();
-        let mut socket = Socket::new(get_source_addr_to(addr)?, addr, self.select_unused_port(&mut rng)?, port, TcpStatus::SynSent)?;
+        let mut socket = Socket::new(
+            get_source_addr_to(addr)?,
+            addr,
+            self.select_unused_port(&mut rng)?,
+            port,
+            TcpStatus::SynSent,
+        )?;
         socket.send_param.initial_seq = rng.gen_range(1..1 << 31);
         socket.send_tcp_packet(socket.send_param.initial_seq, 0, tcpflags::SYN, &[])?;
         socket.send_param.unacked_seq = socket.send_param.initial_seq;
