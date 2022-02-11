@@ -170,6 +170,33 @@ impl TCP {
         }
     }
 
+    /// リスニングソケットを作成してソケットIDを返す
+    pub fn listen(&self, local_addr: Ipv4Addr, local_port: u16) -> Result<SockID> {
+        let socket = Socket::new(
+            local_addr,
+            UNDETERMINED_IP_ADDR, // 接続先IPアドレスは未定
+            local_port,
+            UNDETERMINED_PORT, //接続先ポートは未定
+            TcpStatus::Listen,
+        )?;
+        let mut lock = self.sockets.write().unwrap();
+        let sock_id = socket.get_sock_id();
+        lock.insert(sock_id, socket);
+        Ok(sock_id)
+    }
+
+    /// 接続済みソケットが生成されるまで待機して、生成されたらそのIDを返す
+    pub fn accept(&self, sock_id: SockID) -> Result<SockID> {
+        self.wait_event(sock_id, TCPEventKind::ConnectionCompleted);
+        let mut table = self.sockets.write().unwrap();
+        Ok(table
+            .get_mut(&sock_id)
+            .context(format!("no such socket: {:?}", sock_id))?
+            .connected_connection_queue
+            .pop_front()
+            .context("no connected socket")?)
+    }
+
     pub fn new() -> Arc<Self> {
         let sockets = RwLock::new(HashMap::new());
         let tcp = Arc::new(Self {
