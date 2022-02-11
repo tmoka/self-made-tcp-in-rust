@@ -39,6 +39,8 @@ pub struct Socket {
     pub recv_param: RecvParam,
     pub status: TcpStatus,
     pub sender: TransportSender,
+    pub connected_connection_queue: VecDeque<SockID>, // 接続済みソケットを保持するキュー。リスニングソケットのみ使用
+    pub listening_socket: Option<SockID>, //　生成元のリスニングソケット。接続済みソケットのみ使用
 }
 
 #[derive(PartialEq, Eq, Debug, Clone)]
@@ -101,6 +103,8 @@ impl Socket {
             },
             status,
             sender,
+            connected_connection_queue: VecDeque::new(),
+            listening_socket: None,
         })
     }
 
