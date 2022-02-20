@@ -15,7 +15,7 @@ fn echo_server(local_addr: Ipv4Addr, local_port: u16) -> Result<()> {
     let listening_socket = tcp.listen(local_addr, local_port)?;
     dbg!("listening...");
     loop {
-        let connected_socket = tcp.accept(listening_socket);
+        let connected_socket = tcp.accept(listening_socket)?;
         dbg!("accepted!", connected_socket.1, connected_socket.3);
     }
 }
