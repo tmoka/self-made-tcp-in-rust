@@ -257,7 +257,7 @@ impl TCP {
         {
             socket.recv_param.next = packet.get_seq();
             socket.send_param.unacked_seq = packet.get_ack();
-            socket.status = TcpStatis::Established;
+            socket.status = TcpStatus::Established;
             dbg!("status: synrcvd ->", &socket.status);
             if let Some(id) = socket.listening_socket {
                 let ls = table.get_mut(&id).unwrap();
@@ -265,7 +265,7 @@ impl TCP {
                 self.publish_event(ls.get_sock_id(), TCPEventKind::ConnectionCompleted);
             }
         }
-        OK(())
+        Ok(())
     }
 
     pub fn new() -> Arc<Self> {
