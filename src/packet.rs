@@ -43,6 +43,10 @@ impl TCPPacket {
             self.buffer[11],
         ])
     }
+    
+    pub fn get_flag(&self) -> u8 {
+        self.buffer[13]
+    }
 
     pub fn get_window_size(&self) -> u16 {
         u16::from_be_bytes([self.buffer[14], self.buffer[15]])
@@ -50,10 +54,6 @@ impl TCPPacket {
 
     pub fn get_checksum(&self) -> u16 {
         u16::from_be_bytes([self.buffer[16], self.buffer[17]])
-    }
-
-    pub fn get_flag(&self) -> u8 {
-        self.buffer[13]
     }
 
     pub fn set_src(&mut self, port: u16) {

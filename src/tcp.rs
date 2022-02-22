@@ -32,10 +32,6 @@ pub enum TCPEventKind {
     DataArrived,
     ConnectionClosed,
 }
-pub struct TCP {
-    sockets: RwLock<HashMap<SockID, Socket>>,
-    event_condvar: (Mutex<Option<TCPEvent>>, Condvar),
-}
 
 impl TCPEvent {
     fn new(sock_id: SockID, kind: TCPEventKind) -> Self {
@@ -43,7 +39,26 @@ impl TCPEvent {
     }
 }
 
+pub struct TCP {
+    sockets: RwLock<HashMap<SockID, Socket>>,
+    event_condvar: (Mutex<Option<TCPEvent>>, Condvar),
+}
+
 impl TCP {
+    pub fn new() -> Arc<Self> {
+        let sockets = RwLock::new(HashMap::new());
+        let tcp = Arc::new(Self {
+            sockets,
+            event_condvar: (Mutex::new(None), Condvar::new()),
+        });
+        let cloned_tcp = tcp.clone();
+        std::thread::spawn(move || {
+            // パケットの受信用スレッド
+            cloned_tcp.receive_handler().unwrap();
+        });
+        tcp
+    }
+
     /// 指定したソケットIDと種別のイベントを待機
     fn wait_event(&self, sock_id: SockID, kind: TCPEventKind) {
         let (lock, cvar) = &self.event_condvar;
@@ -61,6 +76,69 @@ impl TCP {
         *event = None;
     }
 
+        /// リスニングソケットを生成してソケットIDを返す
+        pub fn listen(&self, local_addr: Ipv4Addr, local_port: u16) -> Result<SockID> {
+            let socket = Socket::new(
+                local_addr,
+                UNDETERMINED_IP_ADDR, // 接続先IPアドレスは未定
+                local_port,
+                UNDETERMINED_PORT, //接続先ポートは未定
+                TcpStatus::Listen,
+            )?;
+            let mut lock = self.sockets.write().unwrap();
+            let sock_id = socket.get_sock_id();
+            lock.insert(sock_id, socket);
+            Ok(sock_id)
+        }
+
+    /// 接続済みソケットが生成されるまで待機して、生成されたらそのIDを返す
+    pub fn accept(&self, sock_id: SockID) -> Result<SockID> {
+        self.wait_event(sock_id, TCPEventKind::ConnectionCompleted);
+
+        let mut table = self.sockets.write().unwrap();
+        Ok(table
+            .get_mut(&sock_id)
+            .context(format!("no such socket: {:?}", sock_id))?
+            .connected_connection_queue
+            .pop_front()
+            .context("no connected socket")?)
+    }
+    
+    /// 未使用のポート番号を探して返す
+    fn select_unused_port(&self, rng: &mut ThreadRng) -> Result<u16> {
+        for _ in 0..(PORT_RANGE.end - PORT_RANGE.start) {
+            let local_port = rng.gen_range(PORT_RANGE);
+            let table = self.sockets.read().unwrap();
+            if table.keys().all(|k| local_port != k.2) {
+                return Ok(local_port);
+            }
+        }
+        anyhow::bail!("no available port found.");
+    }
+
+
+    pub fn connect(&self, addr: Ipv4Addr, port: u16) -> Result<SockID> {
+        let mut rng = rand::thread_rng();
+        let mut socket = Socket::new(
+            get_source_addr_to(addr)?,
+            addr,
+            self.select_unused_port(&mut rng)?,
+            port,
+            TcpStatus::SynSent,
+        )?;
+        socket.send_param.initial_seq = rng.gen_range(1..1 << 31);
+        socket.send_tcp_packet(socket.send_param.initial_seq, 0, tcpflags::SYN, &[])?;
+        socket.send_param.unacked_seq = socket.send_param.initial_seq;
+        socket.send_param.next = socket.send_param.initial_seq + 1;
+        let mut table = self.sockets.write().unwrap();
+        let sock_id = socket.get_sock_id();
+        table.insert(sock_id, socket);
+        // ロックを外してイベントの待機。受信スレッドがロックを取得できるようにする。
+        drop(table);
+        self.wait_event(sock_id, TCPEventKind::ConnectionCompleted);
+        Ok(sock_id)
+    }
+    
     /// 指定のソケットIDにイベントを発行する
     fn publish_event(&self, sock_id: SockID, kind: TCPEventKind) {
         let (lock, cvar) = &self.event_condvar;
@@ -110,11 +188,12 @@ impl TCP {
         dbg!("begin recv thread");
         let (_, mut receiver) = transport::transport_channel(
             65535,
-            TransportChannelType::Layer3(IpNextHeaderProtocols::Tcp),
+            TransportChannelType::Layer3(IpNextHeaderProtocols::Tcp), // IPアドレスが必要なので，IPパケットレベルで取得．
         )
         .unwrap();
         let mut packet_iter = transport::ipv4_packet_iter(&mut receiver);
         loop {
+            dbg!("looping!")
             let (packet, remote_addr) = match packet_iter.next() {
                 Ok((p, r)) => (p, r),
                 Err(_) => continue,
@@ -170,33 +249,6 @@ impl TCP {
                 dbg!(error);
             }
         }
-    }
-
-    /// リスニングソケットを作成してソケットIDを返す
-    pub fn listen(&self, local_addr: Ipv4Addr, local_port: u16) -> Result<SockID> {
-        let socket = Socket::new(
-            local_addr,
-            UNDETERMINED_IP_ADDR, // 接続先IPアドレスは未定
-            local_port,
-            UNDETERMINED_PORT, //接続先ポートは未定
-            TcpStatus::Listen,
-        )?;
-        let mut lock = self.sockets.write().unwrap();
-        let sock_id = socket.get_sock_id();
-        lock.insert(sock_id, socket);
-        Ok(sock_id)
-    }
-
-    /// 接続済みソケットが生成されるまで待機して、生成されたらそのIDを返す
-    pub fn accept(&self, sock_id: SockID) -> Result<SockID> {
-        self.wait_event(sock_id, TCPEventKind::ConnectionCompleted);
-        let mut table = self.sockets.write().unwrap();
-        Ok(table
-            .get_mut(&sock_id)
-            .context(format!("no such socket: {:?}", sock_id))?
-            .connected_connection_queue
-            .pop_front()
-            .context("no connected socket")?)
     }
 
     /// LISTEN状態のソケットに到着したパケットの処理
@@ -268,51 +320,8 @@ impl TCP {
         Ok(())
     }
 
-    pub fn new() -> Arc<Self> {
-        let sockets = RwLock::new(HashMap::new());
-        let tcp = Arc::new(Self {
-            sockets,
-            event_condvar: (Mutex::new(None), Condvar::new()),
-        });
-        let cloned_tcp = tcp.clone();
-        std::thread::spawn(move || {
-            cloned_tcp.receive_handler().unwrap();
-        });
-        tcp
-    }
 
-    fn select_unused_port(&self, rng: &mut ThreadRng) -> Result<u16> {
-        for _ in 0..(PORT_RANGE.end - PORT_RANGE.start) {
-            let local_port = rng.gen_range(PORT_RANGE);
-            let table = self.sockets.read().unwrap();
-            if table.keys().all(|k| local_port != k.2) {
-                return Ok(local_port);
-            }
-        }
-        anyhow::bail!("no available port found.");
-    }
 
-    pub fn connect(&self, addr: Ipv4Addr, port: u16) -> Result<SockID> {
-        let mut rng = rand::thread_rng();
-        let mut socket = Socket::new(
-            get_source_addr_to(addr)?,
-            addr,
-            self.select_unused_port(&mut rng)?,
-            port,
-            TcpStatus::SynSent,
-        )?;
-        socket.send_param.initial_seq = rng.gen_range(1..1 << 31);
-        socket.send_tcp_packet(socket.send_param.initial_seq, 0, tcpflags::SYN, &[])?;
-        socket.send_param.unacked_seq = socket.send_param.initial_seq;
-        socket.send_param.next = socket.send_param.initial_seq + 1;
-        let mut table = self.sockets.write().unwrap();
-        let sock_id = socket.get_sock_id();
-        table.insert(sock_id, socket);
-        // ロックを外してイベントの待機。受信スレッドがロックを取得できるようにする。
-        drop(table);
-        self.wait_event(sock_id, TCPEventKind::ConnectionCompleted);
-        Ok(sock_id)
-    }
 }
 
 fn get_source_addr_to(addr: Ipv4Addr) -> Result<Ipv4Addr> {

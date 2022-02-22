@@ -11,21 +11,6 @@ use std::time::SystemTime;
 
 const SOCKET_BUFFER_SIZE: usize = 4380;
 
-#[derive(Clone, Debug)]
-pub struct SendParam {
-    pub unacked_seq: u32,
-    pub next: u32,
-    pub window: u16,
-    pub initial_seq: u32,
-}
-
-#[derive(Clone, Debug)]
-pub struct RecvParam {
-    pub next: u32,
-    pub window: u16,
-    pub initial_seq: u32,
-    pub tail: u32,
-}
 
 #[derive(Debug, Hash, Eq, PartialEq, Clone, Copy)]
 pub struct SockID(pub Ipv4Addr, pub Ipv4Addr, pub u16, pub u16);
@@ -41,6 +26,21 @@ pub struct Socket {
     pub sender: TransportSender,
     pub connected_connection_queue: VecDeque<SockID>, // 接続済みソケットを保持するキュー。リスニングソケットのみ使用
     pub listening_socket: Option<SockID>, //　生成元のリスニングソケット。接続済みソケットのみ使用
+    #[derive(Clone, Debug)]
+pub struct SendParam {
+    pub unacked_seq: u32,
+    pub next: u32,
+    pub window: u16,
+    pub initial_seq: u32,
+}
+
+#[derive(Clone, Debug)]
+pub struct RecvParam {
+    pub next: u32,
+    pub window: u16,
+    pub initial_seq: u32,
+    pub tail: u32,
+}
 }
 
 #[derive(PartialEq, Eq, Debug, Clone)]
@@ -91,9 +91,9 @@ impl Socket {
             remote_port,
             send_param: SendParam {
                 unacked_seq: 0,
+                initial_seq: 0,
                 next: 0,
                 window: SOCKET_BUFFER_SIZE as u16,
-                initial_seq: 0,
             },
             recv_param: RecvParam {
                 initial_seq: 0,
@@ -102,9 +102,9 @@ impl Socket {
                 tail: 0,
             },
             status,
-            sender,
             connected_connection_queue: VecDeque::new(),
             listening_socket: None,
+            sender,
         })
     }
 
